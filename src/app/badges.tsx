@@ -1,5 +1,5 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
@@ -66,7 +66,7 @@ const BADGES = [
 
 export default function BadgesScreen() {
   const router = useRouter();
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   const renderBadge = ({ item }: { item: (typeof BADGES)[0] }) => (
     <View

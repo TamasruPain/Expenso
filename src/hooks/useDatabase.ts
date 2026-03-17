@@ -13,28 +13,46 @@ import { useSupabase } from "./useSupabase";
 export function useDatabase() {
   const supabase = useSupabase();
 
-  // Stores
-  const txStore = useTransactionStore();
-  const budgetStore = useBudgetStore();
-  const goalStore = useGoalStore();
-  const categoryStore = useCategoryStore();
+  // Store Selectors (Stable Actions)
+  const setTransactions = useTransactionStore((state) => state.setTransactions);
+  const setTxLoading = useTransactionStore((state) => state.setLoading);
+  const addTxToStore = useTransactionStore((state) => state.addTransaction);
+  const removeTxFromStore = useTransactionStore(
+    (state) => state.removeTransaction,
+  );
+  const isTxLoading = useTransactionStore((state) => state.isLoading);
+
+  const setBudgets = useBudgetStore((state) => state.setBudgets);
+  const setBudgetLoading = useBudgetStore((state) => state.setLoading);
+  const isBudgetLoading = useBudgetStore((state) => state.isLoading);
+
+  const setGoals = useGoalStore((state) => state.setGoals);
+  const setGoalLoading = useGoalStore((state) => state.setLoading);
+  const isGoalLoading = useGoalStore((state) => state.isLoading);
+
+  const setCategories = useCategoryStore((state) => state.setCategories);
+  const setCategoryLoading = useCategoryStore((state) => state.setLoading);
+  const isCategoryLoading = useCategoryStore((state) => state.isLoading);
 
   // --- Transactions ---
 
   const fetchTransactions = useCallback(async () => {
-    txStore.setLoading(true);
+    setTxLoading(true);
     const { data, error } = await supabase
       .from("transactions")
       .select("*")
       .order("date", { ascending: false });
 
     if (!error && data) {
-      // Map DB snake_case to FE camelCase if needed,
-      // but here we keep camelCase where possible.
-      txStore.setTransactions(data as Transaction[]);
+      // Map DB column names to FE field names
+      const mapped = data.map((row: any) => ({
+        ...row,
+        categoryId: row.category_id || row.categoryId,
+      }));
+      setTransactions(mapped as Transaction[]);
     }
-    txStore.setLoading(false);
-  }, [supabase]);
+    setTxLoading(false);
+  }, [supabase, setTransactions, setTxLoading]);
 
   const addTransaction = async (tx: Omit<Transaction, "id">) => {
     const dbTx = {
@@ -50,7 +68,7 @@ export function useDatabase() {
       .single();
 
     if (!error && data) {
-      txStore.addTransaction(data as Transaction);
+      addTxToStore(data as Transaction);
       return data;
     }
     return null;
@@ -59,33 +77,87 @@ export function useDatabase() {
   const deleteTransaction = async (id: string) => {
     const { error } = await supabase.from("transactions").delete().eq("id", id);
     if (!error) {
-      txStore.removeTransaction(id);
+      removeTxFromStore(id);
       return true;
     }
     return false;
   };
 
+  const updateTransaction = async (
+    id: string,
+    updates: Partial<Omit<Transaction, "id">>,
+  ) => {
+    const dbUpdates: any = { ...updates };
+    if (updates.categoryId) {
+      dbUpdates.category_id = updates.categoryId;
+      delete dbUpdates.categoryId;
+    }
+    const { data, error } = await supabase
+      .from("transactions")
+      .update(dbUpdates)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      // Refresh all transactions to get clean data
+      await fetchTransactions();
+      return data;
+    }
+    return null;
+  };
+
   // --- Budgets ---
 
   const fetchBudgets = useCallback(async () => {
-    budgetStore.setLoading(true);
+    setBudgetLoading(true);
     const { data, error } = await supabase.from("budgets").select("*");
 
     if (!error && data) {
-      budgetStore.setBudgets(data as Budget[]);
+      // Map DB column names to FE field names
+      const mapped = data.map((row: any) => ({
+        ...row,
+        categoryId: row.category_id || row.categoryId,
+      }));
+      setBudgets(mapped as Budget[]);
     }
-    budgetStore.setLoading(false);
-  }, [supabase]);
+    setBudgetLoading(false);
+  }, [supabase, setBudgets, setBudgetLoading]);
 
   const upsertBudget = async (budget: Omit<Budget, "id"> & { id?: string }) => {
-    const { data, error } = await supabase
-      .from("budgets")
-      .upsert({
-        ...budget,
-        category_id: budget.categoryId,
-      })
-      .select()
-      .single();
+    const dbBudget = {
+      ...budget,
+      category_id: budget.categoryId,
+    };
+    delete (dbBudget as any).categoryId;
+
+    let result;
+
+    if (dbBudget.id) {
+      // Update existing budget
+      const updatePayload = { ...dbBudget };
+      delete updatePayload.id;
+
+      result = await supabase
+        .from("budgets")
+        .update(updatePayload)
+        .eq("id", dbBudget.id)
+        .select()
+        .single();
+    } else {
+      // Insert new budget
+      result = await supabase
+        .from("budgets")
+        .insert([dbBudget])
+        .select()
+        .single();
+    }
+
+    const { data, error } = result;
+
+    if (error) {
+      console.error("Error saving budget:", error);
+    }
 
     if (!error && data) {
       fetchBudgets(); // Refresh all budgets to be safe
@@ -94,17 +166,27 @@ export function useDatabase() {
     return null;
   };
 
+  const deleteBudget = async (id: string) => {
+    const { error } = await supabase.from("budgets").delete().eq("id", id);
+    if (!error) {
+      // Could also update the local store manually, but fetching is safer
+      fetchBudgets();
+      return true;
+    }
+    return false;
+  };
+
   // --- Goals ---
 
   const fetchGoals = useCallback(async () => {
-    goalStore.setLoading(true);
+    setGoalLoading(true);
     const { data, error } = await supabase.from("goals").select("*");
 
     if (!error && data) {
-      goalStore.setGoals(data as Goal[]);
+      setGoals(data as Goal[]);
     }
-    goalStore.setLoading(false);
-  }, [supabase]);
+    setGoalLoading(false);
+  }, [supabase, setGoals, setGoalLoading]);
 
   const addGoal = async (goal: Omit<Goal, "id">) => {
     const { data, error } = await supabase
@@ -138,17 +220,17 @@ export function useDatabase() {
   // --- Categories ---
 
   const fetchCategories = useCallback(async () => {
-    categoryStore.setLoading(true);
+    setCategoryLoading(true);
     const { data, error } = await supabase
       .from("categories")
       .select("*")
       .order("sort_order", { ascending: true });
 
     if (!error && data) {
-      categoryStore.setCategories(data as Category[]);
+      setCategories(data as Category[]);
     }
-    categoryStore.setLoading(false);
-  }, [supabase]);
+    setCategoryLoading(false);
+  }, [supabase, setCategories, setCategoryLoading]);
 
   // --- Initial Data Loader ---
 
@@ -165,17 +247,16 @@ export function useDatabase() {
     refreshAllData,
     fetchTransactions,
     addTransaction,
+    updateTransaction,
     deleteTransaction,
     fetchBudgets,
     upsertBudget,
+    deleteBudget,
     fetchGoals,
     addGoal,
     updateGoal,
     fetchCategories,
     isLoading:
-      txStore.isLoading ||
-      budgetStore.isLoading ||
-      goalStore.isLoading ||
-      categoryStore.isLoading,
+      isTxLoading || isBudgetLoading || isGoalLoading || isCategoryLoading,
   };
 }

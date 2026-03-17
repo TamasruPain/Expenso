@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { getIoniconsName } from "@/lib/icons";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
@@ -43,14 +44,14 @@ const GOALS = [
 
 export default function GoalsScreen() {
   const router = useRouter();
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   const renderGoalItem = ({ item }: { item: (typeof GOALS)[0] }) => {
     const percent = Math.min(100, (item.current / item.target) * 100);
 
     return (
       <TouchableOpacity
-        style={[styles.goalCard, { backgroundColor: colors.white }]}
+        style={[styles.goalCard, { backgroundColor: colors.card }]}
         onPress={() => router.push(`/goal/${item.id}`)}
       >
         <View style={styles.cardHeader}>
@@ -61,7 +62,7 @@ export default function GoalsScreen() {
             ]}
           >
             <Ionicons
-              name={item.icon as any}
+              name={getIoniconsName(item.icon)}
               size={24}
               color={colors.primary}
             />

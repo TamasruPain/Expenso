@@ -1,13 +1,17 @@
 import { AddTransactionModal } from "@/components/transaction/AddTransactionModal";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import { useDatabase } from "@/hooks/useDatabase";
+import { getIoniconsName } from "@/lib/icons";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useBudgetStore } from "@/stores/useBudgetStore";
 import { useCategoryStore } from "@/stores/useCategoryStore";
 import { useTransactionStore } from "@/stores/useTransactionStore";
 import { Ionicons } from "@expo/vector-icons";
+import { format } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect } from "react";
+import { useRouter } from "expo-router";
+import React, { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -20,29 +24,86 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [modalVisible, setModalVisible] = React.useState(false);
   const { user } = useAuthStore();
-  const {
-    transactions,
-    isLoading,
-    getTotalIncome,
-    getTotalExpense,
-    getTotalBalance,
-  } = useTransactionStore();
+  const { transactions, isLoading: isTxLoading } = useTransactionStore();
+  const { budgets } = useBudgetStore();
   const { categories } = useCategoryStore();
   const { refreshAllData } = useDatabase();
 
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   useEffect(() => {
     refreshAllData();
   }, [refreshAllData]);
 
+  const currentMonthName = format(new Date(), "MMMM yyyy");
+
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "Good Morning 🌅";
+    if (hour >= 12 && hour < 17) return "Good Afternoon ☀️";
+    if (hour >= 17 && hour < 21) return "Good Evening 🌆";
+    return "Good Night 🌙";
+  }, []);
+
+  // Calculate totals for CURRENT MONTH only
+  const totals = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const monthTx = transactions.filter((t) => {
+      const d = new Date(t.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+
+    const income = monthTx
+      .filter((t) => t.type === "income")
+      .reduce((sum, t) => sum + t.amount, 0);
+    const expense = monthTx
+      .filter((t) => t.type === "expense")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return {
+      income,
+      expense,
+      balance: income - expense,
+      txCount: monthTx.length,
+    };
+  }, [transactions]);
+
+  // Calculate budget progress
+  const budgetSummary = useMemo(() => {
+    const totalBudget = budgets.reduce((acc, b) => acc + b.amount, 0) || 1250;
+    const totalSpent = totals.expense;
+    const percent =
+      totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
+    return {
+      total: totalBudget,
+      percent: Math.round(percent),
+    };
+  }, [budgets, totals.expense]);
+
+  // Days elapsed in current month (minimum 1 to avoid division by zero)
+  const daysElapsed = useMemo(() => {
+    return Math.max(1, new Date().getDate());
+  }, []);
+
   const recentTransactions = transactions.slice(0, 5);
+
+  const initials = useMemo(() => {
+    const name = user?.fullName || "U";
+    const parts = name.split(" ");
+    return parts.length > 1
+      ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+      : name[0].toUpperCase();
+  }, [user?.fullName]);
 
   const getCategoryIcon = (categoryId: string) => {
     const category = categories.find((c) => c.id === categoryId);
-    return category?.icon || "medical";
+    return getIoniconsName(category?.icon || "medical");
   };
 
   const getCategoryName = (categoryId: string) => {
@@ -53,12 +114,12 @@ export default function HomeScreen() {
   const renderTransaction = (item: any) => (
     <View
       key={item.id}
-      style={[styles.transactionItem, { backgroundColor: colors.white }]}
+      style={[styles.transactionItem, { backgroundColor: colors.card }]}
     >
       <View style={styles.transactionLeft}>
         <View
           style={[
-            styles.iconContainer,
+            styles.transactionIconPlaceholder,
             { backgroundColor: colors.primarySurface },
           ]}
         >
@@ -75,20 +136,26 @@ export default function HomeScreen() {
           <Text
             style={[styles.transactionDate, { color: colors.textSecondary }]}
           >
-            {new Date(item.date).toLocaleDateString()} •{" "}
-            {getCategoryName(item.categoryId)}
+            {format(new Date(item.date), "MM-dd-yyyy")}
           </Text>
         </View>
       </View>
-      <Text
-        style={[
-          styles.transactionAmount,
-          { color: item.type === "income" ? colors.accent : colors.danger },
-        ]}
-      >
-        {item.type === "income" ? "+" : "-"} {user?.currency_symbol || "₹"}
-        {Math.abs(item.amount).toLocaleString()}
-      </Text>
+      <View style={{ alignItems: "flex-end" }}>
+        <Text
+          style={[
+            styles.transactionAmount,
+            { color: item.type === "income" ? colors.accent : colors.danger },
+          ]}
+        >
+          {item.type === "income" ? "+" : "-"} {user?.currency_symbol || "$"}
+          {Math.abs(item.amount).toLocaleString()}
+        </Text>
+        <Text
+          style={[styles.transactionCategory, { color: colors.textSecondary }]}
+        >
+          {getCategoryName(item.categoryId).toLowerCase()}
+        </Text>
+      </View>
     </View>
   );
 
@@ -104,149 +171,159 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>
-              Good Morning 🇮🇳
+              {greeting}
             </Text>
             <Text style={[styles.userName, { color: colors.text }]}>
               {user?.fullName || "Guest"}
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.profileButton, { backgroundColor: colors.white }]}
+            style={[
+              styles.profileButton,
+              { backgroundColor: colors.primarySurface },
+            ]}
+            onPress={() => router.push("/(tabs)/profile")}
           >
-            <View
-              style={[
-                styles.profilePlaceholder,
-                { backgroundColor: colors.border },
-              ]}
-            />
+            <Text
+              style={{
+                color: colors.primary,
+                fontWeight: "700",
+                fontSize: 16,
+              }}
+            >
+              {initials}
+            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Total Spent Card */}
-        <LinearGradient
-          colors={[colors.primary, "#6A4AD9"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.totalSpentCard}
+        {/* Hero Card: Total Spent */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push("/(tabs)/analytics")}
         >
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardLabel}>Total spent</Text>
-            <Text style={styles.cardMonth}>March 2026</Text>
-          </View>
-          <Text style={styles.totalAmount}>
-            {user?.currency_symbol || "₹"} {getTotalExpense().toLocaleString()}
-          </Text>
+          <LinearGradient
+            colors={["#8854ffff", "#8fb0ffff"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.totalSpentCard}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardLabel}>Total spent</Text>
+              <Text style={styles.cardMonth}>{currentMonthName}</Text>
+            </View>
+            <Text style={styles.totalAmount}>
+              {user?.currency_symbol || "$"} {totals.expense.toLocaleString()}
+            </Text>
 
-          <View style={styles.cardFooter}>
-            <View style={styles.incomeSaveContainer}>
-              <View
-                style={[
-                  styles.smallCard,
-                  { backgroundColor: "rgba(255,255,255,0.2)" },
-                ]}
-              >
-                <View style={styles.smallCardIconContainer}>
-                  <Ionicons name="briefcase" size={14} color="#FFF" />
+            <View style={styles.incomeSaveRow}>
+              <View style={styles.glassCard}>
+                <View
+                  style={[
+                    styles.glassIconContainer,
+                    { backgroundColor: "#b3ffdcff" },
+                  ]}
+                >
+                  <Ionicons name="cash" size={15} color="#059669" />
                 </View>
                 <View>
-                  <Text style={styles.smallCardLabel}>Income</Text>
-                  <Text style={styles.smallCardValue}>
-                    {user?.currency_symbol || "₹"}{" "}
-                    {getTotalIncome().toLocaleString()}
+                  <Text style={styles.glassLabel}>Income</Text>
+                  <Text style={styles.glassValue}>
+                    {user?.currency_symbol || "$"}{" "}
+                    {totals.income.toLocaleString()}
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.smallCard,
-                  { backgroundColor: "rgba(255,255,255,0.2)" },
-                ]}
-              >
-                <View style={styles.smallCardIconContainer}>
-                  <Ionicons name="save" size={14} color="#FFF" />
+              <View style={styles.glassCard}>
+                <View
+                  style={[
+                    styles.glassIconContainer,
+                    { backgroundColor: "#DBEAFE" },
+                  ]}
+                >
+                  <Ionicons name="wallet" size={18} color="#2563EB" />
                 </View>
                 <View>
-                  <Text style={styles.smallCardLabel}>Save</Text>
-                  <Text style={styles.smallCardValue}>
-                    {user?.currency_symbol || "₹"}{" "}
-                    {getTotalBalance().toLocaleString()}
+                  <Text style={styles.glassLabel}>Save</Text>
+                  <Text style={styles.glassValue}>
+                    {user?.currency_symbol || "$"}{" "}
+                    {totals.balance.toLocaleString()}
                   </Text>
                 </View>
               </View>
             </View>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
+        </TouchableOpacity>
 
-        {/* Monthly Budget Progress */}
-        <View
-          style={[styles.budgetContainer, { backgroundColor: colors.card }]}
+        {/* Budget Progress Card */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push("/(tabs)/budgets")}
         >
-          <View style={styles.budgetHeader}>
-            <Text style={[styles.budgetTitle, { color: colors.textSecondary }]}>
-              March 2026
-            </Text>
-            <Text
-              style={[styles.budgetPercent, { color: colors.textSecondary }]}
-            >
-              75%
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.progressBackground,
-              { backgroundColor: colors.primarySurface },
-            ]}
+          <LinearGradient
+            colors={["#7f6effff", "#c6c1efff"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.budgetCard}
           >
-            <View
-              style={[
-                styles.progressFill,
-                { backgroundColor: colors.primary, width: "75%" },
-              ]}
-            />
-          </View>
-        </View>
+            <View style={styles.budgetHeader}>
+              <Text style={styles.budgetText}>{currentMonthName}</Text>
+              <Text style={styles.budgetPercent}>
+                {budgetSummary.percent} %
+              </Text>
+            </View>
+            <View style={styles.progressBarBackground}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${budgetSummary.percent}%` },
+                ]}
+              />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
-        {/* Stats Row */}
+        {/* Quick Stats Row */}
         <View style={styles.statsRow}>
-          <View
-            style={[
-              styles.statItem,
-              { backgroundColor: colors.primarySurface },
-            ]}
-          >
-            <Text style={[styles.statValue, { color: colors.primary }]}>
-              {user?.currency_symbol || "₹"}{" "}
-              {(getTotalExpense() / 30).toFixed(0)}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Daily Avg
-            </Text>
+          <View style={styles.statCard}>
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                gap: 5,
+              }}
+            >
+              <Ionicons name="trending-up" size={16} color="#FFF" />
+              <Text style={styles.statCardValue}>
+                {(totals.expense / daysElapsed).toFixed(0)}
+              </Text>
+            </View>
+            <Text style={styles.statCardLabel}>Daily Avg</Text>
           </View>
-          <View
-            style={[
-              styles.statItem,
-              { backgroundColor: colors.primarySurface },
-            ]}
-          >
-            <Text style={[styles.statValue, { color: colors.primary }]}>
-              {transactions.length}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Transactions
-            </Text>
+          <View style={styles.statCard}>
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                gap: 5,
+              }}
+            >
+              <Ionicons name="receipt" size={16} color="#FFF" />
+              <Text style={styles.statCardValue}>{transactions.length}</Text>
+            </View>
+            <Text style={styles.statCardLabel}>Transactions</Text>
           </View>
-          <View
-            style={[
-              styles.statItem,
-              { backgroundColor: colors.primarySurface },
-            ]}
-          >
-            <Text style={[styles.statValue, { color: colors.primary }]}>
-              {categories.length}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Categories
-            </Text>
+          <View style={styles.statCard}>
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                gap: 5,
+              }}
+            >
+              <Ionicons name="grid" size={16} color="#FFF" />
+              <Text style={styles.statCardValue}>{categories.length}</Text>
+            </View>
+            <Text style={styles.statCardLabel}>Categories</Text>
           </View>
         </View>
 
@@ -255,7 +332,7 @@ export default function HomeScreen() {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             Recent Transactions
           </Text>
-          <TouchableOpacity onPress={() => {}}>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/transactions")}>
             <Text style={[styles.viewAll, { color: colors.primary }]}>
               View all
             </Text>
@@ -264,7 +341,7 @@ export default function HomeScreen() {
 
         {/* Transactions List */}
         <View style={styles.transactionsList}>
-          {isLoading ? (
+          {isTxLoading ? (
             <ActivityIndicator
               color={colors.primary}
               style={{ marginTop: 20 }}
@@ -287,13 +364,15 @@ export default function HomeScreen() {
 
       {/* Add Button FAB Overlay (The tab bar doesn't support center FAB easily without more work, 
           so I'll just add it to the dashboard for now like a Floating button) */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.primary }]}
-        activeOpacity={0.8}
-        onPress={() => setModalVisible(true)}
-      >
-        <Ionicons name="add" size={32} color={colors.white} />
-      </TouchableOpacity>
+      <LinearGradient colors={["#8e5dffff", "#96afebff"]} style={styles.fab}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setModalVisible(true)}
+          style={styles.fabButton}
+        >
+          <Ionicons name="add" size={32} color={colors.white} />
+        </TouchableOpacity>
+      </LinearGradient>
 
       <AddTransactionModal
         visible={modalVisible}
@@ -319,40 +398,35 @@ const styles = StyleSheet.create({
     marginBottom: Theme.spacing.lg,
   },
   greeting: {
-    fontSize: Theme.typography.size.sm,
-    fontWeight: "500",
+    fontSize: 16,
+    fontWeight: "600",
   },
   userName: {
-    fontSize: Theme.typography.size.xl,
+    fontSize: 24,
     fontWeight: "700",
   },
   profileButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    padding: 4,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   profilePlaceholder: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   totalSpentCard: {
-    padding: Theme.spacing.lg,
-    borderRadius: Theme.radius.xl,
+    padding: Theme.spacing.md,
+    borderRadius: 15,
     marginBottom: Theme.spacing.lg,
     elevation: 4,
-    shadowColor: "#7C5CFC",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
   },
   cardHeader: {
     flexDirection: "row",
@@ -361,101 +435,105 @@ const styles = StyleSheet.create({
     marginBottom: Theme.spacing.xs,
   },
   cardLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: Theme.typography.size.sm,
-    fontWeight: "500",
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
   cardMonth: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: Theme.typography.size.xs,
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
   totalAmount: {
     color: "#FFF",
-    fontSize: Theme.typography.size.h1,
+    fontSize: 32,
     fontWeight: "700",
-    marginBottom: Theme.spacing.lg,
+    marginBottom: Theme.spacing.md,
   },
-  cardFooter: {
-    marginTop: Theme.spacing.xs,
-  },
-  incomeSaveContainer: {
+  incomeSaveRow: {
     flexDirection: "row",
     gap: Theme.spacing.md,
   },
-  smallCard: {
+  glassCard: {
     flex: 1,
+    backgroundColor: "rgba(154, 213, 255, 0.7)",
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
-    padding: Theme.spacing.sm,
-    borderRadius: Theme.radius.md,
-    gap: Theme.spacing.sm,
+    gap: 8,
   },
-  smallCardIconContainer: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  glassIconContainer: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  smallCardLabel: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  smallCardValue: {
-    color: "#FFF",
-    fontSize: 13,
+  glassLabel: {
+    fontSize: 12,
     fontWeight: "700",
+    color: "#1F2937",
   },
-  budgetContainer: {
+  glassValue: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFF",
+  },
+  budgetCard: {
     padding: Theme.spacing.md,
-    borderRadius: Theme.radius.lg,
+    borderRadius: 16,
     marginBottom: Theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
   },
   budgetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: Theme.spacing.sm,
+    marginBottom: 8,
   },
-  budgetTitle: {
-    fontSize: Theme.typography.size.xs,
+  budgetText: {
+    color: "#FFF",
+    fontSize: 14,
     fontWeight: "600",
   },
   budgetPercent: {
-    fontSize: Theme.typography.size.xs,
-    fontWeight: "700",
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
-  progressBackground: {
-    height: 8,
-    borderRadius: 4,
+  progressBarBackground: {
+    height: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    borderRadius: 5,
     overflow: "hidden",
   },
-  progressFill: {
+  progressBarFill: {
     height: "100%",
-    borderRadius: 4,
+    backgroundColor: "#2E1CFF",
+    borderRadius: 5,
   },
   statsRow: {
     flexDirection: "row",
-    gap: Theme.spacing.md,
-    marginBottom: Theme.spacing.xl,
+    gap: 12,
+    marginBottom: Theme.spacing.lg,
   },
-  statItem: {
+  statCard: {
     flex: 1,
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radius.md,
+    backgroundColor: "rgba(125, 145, 255, 1)",
+    padding: 12,
+    borderRadius: 12,
     alignItems: "center",
   },
-  statValue: {
-    fontSize: 15,
+
+  statCardValue: {
+    fontSize: 18,
     fontWeight: "700",
-    marginBottom: 2,
+    color: "#FFF",
   },
-  statLabel: {
+  statCardLabel: {
     fontSize: 10,
     fontWeight: "600",
+    color: "#FFF",
   },
   sectionHeader: {
     flexDirection: "row",
@@ -464,42 +542,41 @@ const styles = StyleSheet.create({
     marginBottom: Theme.spacing.md,
   },
   sectionTitle: {
-    fontSize: Theme.typography.size.lg,
+    fontSize: 16,
     fontWeight: "700",
   },
   viewAll: {
-    fontSize: Theme.typography.size.xs,
-    fontWeight: "700",
+    display: "flex",
   },
   transactionsList: {
-    gap: Theme.spacing.sm,
+    gap: 12,
   },
   transactionItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radius.lg,
-    elevation: 2,
+    padding: 12,
+    borderRadius: 16,
+    elevation: 3,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
     shadowRadius: 6,
   },
   transactionLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Theme.spacing.md,
+    gap: 12,
   },
-  iconContainer: {
+  transactionIconPlaceholder: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
   transactionName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "600",
   },
   transactionDate: {
@@ -509,19 +586,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
+  transactionCategory: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
   fab: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 96 : 88, // Above the tab bar
+    bottom: Platform.OS === "ios" ? 110 : 100,
     right: 20,
     width: 56,
     height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#7C5CFC",
+    borderRadius: 16,
+    elevation: 8,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 10,
+    overflow: "hidden",
+  },
+  fabButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

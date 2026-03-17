@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -8,22 +9,19 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const isDark = false;
-  const colors = isDark ? Colors.dark : Colors.light;
+  const { colors } = useAppTheme();
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
       <View style={styles.content}>
-        {/* Illustration Mock */}
-        <View style={styles.illustrationContainer}>
-          <View
-            style={[
-              styles.illustrationCircle,
-              { backgroundColor: colors.primarySurface },
-            ]}
+        {/* Auth Image */}
+        <View style={styles.ImageContainer}>
+          <Image
+            source={require("../../../assets/images/auth_image.png")}
+            style={styles.image}
           />
-          {/* In a real app, this would be an Image asset */}
-          <Text style={styles.illustrationText}>👨‍💻</Text>
         </View>
 
         <View style={styles.textContainer}>
@@ -63,7 +61,6 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.white,
   },
   content: {
     flex: 1,
@@ -71,21 +68,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  illustrationContainer: {
-    width: 280,
-    height: 280,
+  ImageContainer: {
+    width: 200,
+    height: 200,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Theme.spacing.xl,
   },
-  illustrationCircle: {
-    position: "absolute",
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-  },
-  illustrationText: {
-    fontSize: 100,
+  image: {
+    width: 200,
+    height: 200,
   },
   textContainer: {
     alignItems: "center",

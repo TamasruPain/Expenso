@@ -1,10 +1,9 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
   ActivityIndicator,
-  StyleSheet,
   Text,
   TextStyle,
   TouchableOpacity,
@@ -35,8 +34,7 @@ export const Button: React.FC<ButtonProps> = ({
   textStyle,
   icon,
 }) => {
-  const isDark = false; // Mock for now
-  const colors = isDark ? Colors.dark : Colors.light;
+  const { colors } = useAppTheme();
 
   const handlePress = () => {
     if (!disabled && !loading) {
@@ -54,7 +52,7 @@ export const Button: React.FC<ButtonProps> = ({
     };
 
     const variantStyles: Record<string, ViewStyle> = {
-      primary: { backgroundColor: colors.black },
+      primary: { backgroundColor: colors.primary },
       secondary: { backgroundColor: colors.primary },
       outline: {
         backgroundColor: "transparent",
@@ -126,5 +124,3 @@ export const Button: React.FC<ButtonProps> = ({
     </TouchableOpacity>
   );
 };
-
-const styles = StyleSheet.create({});

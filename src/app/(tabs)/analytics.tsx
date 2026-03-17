@@ -1,8 +1,14 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { useAuthStore } from "@/stores/useAuthStore";
+import { useCategoryStore } from "@/stores/useCategoryStore";
+import { useTransactionStore } from "@/stores/useTransactionStore";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import { format } from "date-fns";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   ScrollView,
   StyleSheet,
@@ -12,33 +18,139 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const { width } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const HEATMAP_COLS = 7;
+const HEATMAP_GAP = 6;
+const HEATMAP_PADDING = Theme.spacing.lg * 2 + Theme.spacing.md * 2;
+const CELL_SIZE =
+  (SCREEN_WIDTH - HEATMAP_PADDING - HEATMAP_GAP * (HEATMAP_COLS - 1)) /
+  HEATMAP_COLS;
 
-// Mock Chart Data
-const CATEGORY_BREAKDOWN = [
-  { name: "Food", amount: 12500, color: "#7C5CFC", percent: 35 },
-  { name: "Shopping", amount: 8400, color: "#00D09E", percent: 24 },
-  { name: "Bills", amount: 6200, color: "#FFB800", percent: 18 },
-  { name: "Travel", amount: 4500, color: "#FF5C5C", percent: 13 },
-  { name: "Other", amount: 3600, color: "#B8A9FF", percent: 10 },
-];
-
-// Mock Heatmap Data (Days of month with intensity)
-const HEATMAP_DATA = Array.from({ length: 31 }, (_, i) => ({
-  day: i + 1,
-  intensity: Math.floor(Math.random() * 5), // 0 to 4
-}));
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function AnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<"weekly" | "monthly" | "yearly">(
     "monthly",
   );
-  const colors = Colors.light;
+  const { colors, isDark } = useAppTheme();
+  const { user } = useAuthStore();
+  const { transactions, getTotalExpense, isLoading } = useTransactionStore();
+  const { categories } = useCategoryStore();
 
-  const renderHeatmapCell = (item: (typeof HEATMAP_DATA)[0]) => {
-    const opacity = item.intensity * 0.25;
-    const backgroundColor =
-      item.intensity === 0 ? colors.primarySurface : colors.primary;
+  const analyticsData = useMemo(() => {
+    const totalSpent = getTotalExpense();
+    const totalIncome = transactions
+      .filter((t) => t.type === "income")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const breakdown = categories
+      .map((cat) => {
+        const amount = transactions
+          .filter((t) => t.categoryId === cat.id && t.type === "expense")
+          .reduce((sum, t) => sum + t.amount, 0);
+        return {
+          name: cat.name,
+          amount,
+          color: cat.color || colors.primary,
+          percent: totalSpent > 0 ? Math.round((amount / totalSpent) * 100) : 0,
+        };
+      })
+      .filter((item) => item.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+
+    // Heatmap data for current month
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const daysInMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+    ).getDate();
+    const startDayOfWeek = firstDayOfMonth.getDay(); // 0=Sun
+
+    // Leading blanks so the grid aligns to the correct weekday
+    const heatmapBlanks = Array.from({ length: startDayOfWeek }, (_, i) => ({
+      day: -(i + 1),
+      intensity: -1,
+      amount: 0,
+    }));
+
+    const heatmapDays = Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      const dayTx = transactions.filter((t) => {
+        const d = new Date(t.date);
+        return (
+          d.getDate() === day &&
+          d.getMonth() === now.getMonth() &&
+          d.getFullYear() === now.getFullYear() &&
+          t.type === "expense"
+        );
+      });
+      const dayAmount = dayTx.reduce((sum, t) => sum + t.amount, 0);
+      const count = dayTx.length;
+      return {
+        day,
+        intensity: Math.min(4, count),
+        amount: dayAmount,
+      };
+    });
+
+    const heatmap = [...heatmapBlanks, ...heatmapDays];
+
+    // Weekly bar chart data (last 7 days)
+    const weeklyBars = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      const dayLabel = format(d, "EEE");
+      const dayAmount = transactions
+        .filter((t) => {
+          const td = new Date(t.date);
+          return (
+            td.getDate() === d.getDate() &&
+            td.getMonth() === d.getMonth() &&
+            td.getFullYear() === d.getFullYear() &&
+            t.type === "expense"
+          );
+        })
+        .reduce((sum, t) => sum + t.amount, 0);
+      return { label: dayLabel, amount: dayAmount };
+    });
+    const maxBar = Math.max(...weeklyBars.map((b) => b.amount), 1);
+
+    return {
+      totalSpent,
+      totalIncome,
+      breakdown,
+      heatmap,
+      weeklyBars,
+      maxBar,
+      monthName: format(now, "MMMM yyyy"),
+      txCount: transactions.length,
+    };
+  }, [transactions, categories, getTotalExpense, colors.primary]);
+
+  // ─── Heatmap Cell ──────────────────────────────────────────────
+  const renderHeatmapCell = (item: {
+    day: number;
+    intensity: number;
+    amount: number;
+  }) => {
+    if (item.intensity < 0) {
+      return <View key={`blank-${item.day}`} style={styles.heatmapCellBlank} />;
+    }
+
+    const intensityColors = isDark
+      ? [
+          "rgba(255,255,255,0.04)",
+          "rgba(124,92,252,0.25)",
+          "rgba(124,92,252,0.45)",
+          "rgba(124,92,252,0.70)",
+          "rgba(124,92,252,0.95)",
+        ]
+      : ["#EDE8FF", "#C9B8FF", "#A78BFA", "#8B5CF6", "#7C3AED"];
+
+    const isToday = item.day === new Date().getDate();
+    const bgColor = intensityColors[item.intensity];
 
     return (
       <View
@@ -46,15 +158,26 @@ export default function AnalyticsScreen() {
         style={[
           styles.heatmapCell,
           {
-            backgroundColor,
-            opacity: item.intensity === 0 ? 1 : Math.max(0.2, opacity),
+            backgroundColor: bgColor,
+            borderWidth: isToday ? 2 : 0,
+            borderColor: isToday ? colors.primary : "transparent",
           },
         ]}
       >
         <Text
           style={[
-            styles.heatmapText,
-            { color: item.intensity > 2 ? colors.white : colors.textSecondary },
+            styles.heatmapDayText,
+            {
+              color:
+                item.intensity >= 3
+                  ? "#FFF"
+                  : item.intensity >= 1
+                    ? isDark
+                      ? "#DDD"
+                      : "#6B21A8"
+                    : colors.textSecondary,
+              fontWeight: isToday ? "800" : "600",
+            },
           ]}
         >
           {item.day}
@@ -71,10 +194,18 @@ export default function AnalyticsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.text }]}>Analytics</Text>
           <View
-            style={[styles.tabBar, { backgroundColor: colors.primarySurface }]}
+            style={[
+              styles.tabBar,
+              {
+                backgroundColor: isDark
+                  ? "rgba(255,255,255,0.06)"
+                  : colors.primarySurface,
+              },
+            ]}
           >
             {(["weekly", "monthly", "yearly"] as const).map((tab) => (
               <TouchableOpacity
@@ -82,20 +213,18 @@ export default function AnalyticsScreen() {
                 style={[
                   styles.tab,
                   activeTab === tab && {
-                    backgroundColor: colors.white,
+                    backgroundColor: colors.primary,
                     elevation: 2,
                   },
                 ]}
                 onPress={() => setActiveTab(tab)}
+                activeOpacity={0.7}
               >
                 <Text
                   style={[
                     styles.tabText,
                     {
-                      color:
-                        activeTab === tab
-                          ? colors.primary
-                          : colors.textSecondary,
+                      color: activeTab === tab ? "#FFF" : colors.textSecondary,
                     },
                   ]}
                 >
@@ -106,139 +235,284 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
-        {/* Hero Chart Placeholder */}
-        <View style={[styles.chartCard, { backgroundColor: colors.white }]}>
-          <View style={styles.chartHeader}>
-            <Text style={[styles.chartTitle, { color: colors.text }]}>
-              Total Spending
-            </Text>
-            <Text style={[styles.chartValue, { color: colors.primary }]}>
-              ₹ 45,200
-            </Text>
-          </View>
-          {/* Line Chart placeholder using View blocks */}
-          <View style={styles.chartPlaceholder}>
-            <View
-              style={[
-                styles.chartBar,
-                { height: "40%", backgroundColor: colors.primarySurface },
-              ]}
-            />
-            <View
-              style={[
-                styles.chartBar,
-                { height: "60%", backgroundColor: colors.primarySurface },
-              ]}
-            />
-            <View
-              style={[
-                styles.chartBar,
-                { height: "90%", backgroundColor: colors.primary },
-              ]}
-            />
-            <View
-              style={[
-                styles.chartBar,
-                { height: "70%", backgroundColor: colors.primarySurface },
-              ]}
-            />
-            <View
-              style={[
-                styles.chartBar,
-                { height: "50%", backgroundColor: colors.primarySurface },
-              ]}
-            />
-            <View
-              style={[
-                styles.chartBar,
-                { height: "80%", backgroundColor: colors.primarySurface },
-              ]}
-            />
-          </View>
-        </View>
-
-        {/* Categories Breakdown */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          Spending Categories
-        </Text>
+        {/* ──────────── SPENDING HEATMAP (TOP) ──────────── */}
         <View
-          style={[styles.categoriesCard, { backgroundColor: colors.white }]}
+          style={[
+            styles.heatmapCard,
+            {
+              backgroundColor: colors.card,
+              shadowColor: isDark ? "#000" : "#7C5CFC",
+            },
+          ]}
         >
-          {CATEGORY_BREAKDOWN.map((item, index) => (
-            <View key={item.name} style={styles.categoryRow}>
-              <View style={styles.categoryInfo}>
-                <View
-                  style={[styles.colorDot, { backgroundColor: item.color }]}
-                />
-                <Text style={[styles.categoryName, { color: colors.text }]}>
-                  {item.name}
-                </Text>
-              </View>
-              <View style={styles.categoryStats}>
-                <Text style={[styles.categoryAmount, { color: colors.text }]}>
-                  ₹{item.amount.toLocaleString()}
-                </Text>
-                <Text
-                  style={[
-                    styles.categoryPercent,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  {item.percent}%
-                </Text>
-              </View>
-              <View
+          <View style={styles.heatmapHeader}>
+            <View>
+              <Text style={[styles.heatmapTitle, { color: colors.text }]}>
+                Spending Heatmap
+              </Text>
+              <Text
                 style={[
-                  styles.categoryProgressBg,
-                  { backgroundColor: colors.primarySurface },
+                  styles.heatmapSubtitle,
+                  { color: colors.textSecondary },
                 ]}
               >
+                {analyticsData.monthName}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.heatmapBadge,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(124,92,252,0.2)"
+                    : colors.primarySurface,
+                },
+              ]}
+            >
+              <Ionicons name="flame" size={14} color={colors.primary} />
+              <Text
+                style={[styles.heatmapBadgeText, { color: colors.primary }]}
+              >
+                {analyticsData.txCount} txns
+              </Text>
+            </View>
+          </View>
+
+          {/* Weekday labels */}
+          <View style={styles.weekdayRow}>
+            {WEEKDAY_LABELS.map((label) => (
+              <Text
+                key={label}
+                style={[styles.weekdayLabel, { color: colors.textSecondary }]}
+              >
+                {label}
+              </Text>
+            ))}
+          </View>
+
+          {/* Grid */}
+          <View style={styles.heatmapGrid}>
+            {analyticsData.heatmap.map(renderHeatmapCell)}
+          </View>
+
+          {/* Legend */}
+          <View style={styles.heatmapLegend}>
+            <Text style={[styles.legendText, { color: colors.textSecondary }]}>
+              Less
+            </Text>
+            {[0, 1, 2, 3, 4].map((i) => {
+              const legendColors = isDark
+                ? [
+                    "rgba(255,255,255,0.04)",
+                    "rgba(124,92,252,0.25)",
+                    "rgba(124,92,252,0.45)",
+                    "rgba(124,92,252,0.70)",
+                    "rgba(124,92,252,0.95)",
+                  ]
+                : ["#EDE8FF", "#C9B8FF", "#A78BFA", "#8B5CF6", "#7C3AED"];
+              return (
                 <View
+                  key={i}
                   style={[
-                    styles.categoryProgressFill,
-                    { backgroundColor: item.color, width: `${item.percent}%` },
+                    styles.legendBox,
+                    { backgroundColor: legendColors[i] },
                   ]}
                 />
-              </View>
-            </View>
-          ))}
+              );
+            })}
+            <Text style={[styles.legendText, { color: colors.textSecondary }]}>
+              More
+            </Text>
+          </View>
         </View>
 
-        {/* Spending Heatmap - Unique Feature */}
-        <View style={styles.sectionHeader}>
+        {/* ──────────── OVERVIEW CARDS ──────────── */}
+        <View style={styles.overviewRow}>
+          <LinearGradient
+            colors={isDark ? ["#3B2EAF", "#5B3EC9"] : ["#8854ff", "#a78bfa"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.overviewCard}
+          >
+            <Ionicons
+              name="trending-down"
+              size={20}
+              color="rgba(255,255,255,0.7)"
+            />
+            <Text style={styles.overviewLabel}>Spent</Text>
+            <Text style={styles.overviewValue}>
+              {user?.currency_symbol || "₹"}{" "}
+              {analyticsData.totalSpent.toLocaleString()}
+            </Text>
+          </LinearGradient>
+          <LinearGradient
+            colors={isDark ? ["#0D6B4F", "#10916A"] : ["#00C896", "#34d399"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.overviewCard}
+          >
+            <Ionicons
+              name="trending-up"
+              size={20}
+              color="rgba(255,255,255,0.7)"
+            />
+            <Text style={styles.overviewLabel}>Income</Text>
+            <Text style={styles.overviewValue}>
+              {user?.currency_symbol || "₹"}{" "}
+              {analyticsData.totalIncome.toLocaleString()}
+            </Text>
+          </LinearGradient>
+        </View>
+
+        {/* ──────────── WEEKLY TREND BAR CHART ──────────── */}
+        <View
+          style={[
+            styles.chartCard,
+            {
+              backgroundColor: colors.card,
+              shadowColor: isDark ? "#000" : "#7C5CFC",
+            },
+          ]}
+        >
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Spending Heatmap
+            Last 7 Days
           </Text>
-          <Ionicons
-            name="information-circle-outline"
-            size={18}
-            color={colors.textSecondary}
-          />
+          <View style={styles.barChartContainer}>
+            {analyticsData.weeklyBars.map((bar, i) => {
+              const barHeight =
+                analyticsData.maxBar > 0
+                  ? Math.max(6, (bar.amount / analyticsData.maxBar) * 120)
+                  : 6;
+              const isHighest =
+                bar.amount === analyticsData.maxBar && bar.amount > 0;
+              return (
+                <View key={i} style={styles.barColumn}>
+                  <Text
+                    style={[
+                      styles.barAmountText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    {bar.amount > 0
+                      ? `${user?.currency_symbol || "₹"}${bar.amount >= 1000 ? `${(bar.amount / 1000).toFixed(1)}k` : bar.amount}`
+                      : ""}
+                  </Text>
+                  <LinearGradient
+                    colors={
+                      isHighest
+                        ? ["#7C5CFC", "#A78BFA"]
+                        : isDark
+                          ? ["rgba(124,92,252,0.4)", "rgba(124,92,252,0.2)"]
+                          : [colors.primarySurface, "#D8CCFF"]
+                    }
+                    style={[
+                      styles.bar,
+                      {
+                        height: barHeight,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.barLabel,
+                      {
+                        color: isHighest
+                          ? colors.primary
+                          : colors.textSecondary,
+                        fontWeight: isHighest ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    {bar.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
         </View>
-        <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
-          Visualize your spending intensity across the month
-        </Text>
 
-        <View style={[styles.heatmapCard, { backgroundColor: colors.white }]}>
-          <View style={styles.heatmapGrid}>
-            {HEATMAP_DATA.map(renderHeatmapCell)}
-          </View>
-          <View style={styles.heatmapLegend}>
-            <Text style={styles.legendText}>Less</Text>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <View
-                key={i}
-                style={[
-                  styles.legendBox,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: i === 0 ? 0.1 : i * 0.25,
-                  },
-                ]}
+        {/* ──────────── CATEGORIES BREAKDOWN ──────────── */}
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>
+          Top Categories
+        </Text>
+        <View
+          style={[
+            styles.categoriesCard,
+            {
+              backgroundColor: colors.card,
+              shadowColor: isDark ? "#000" : "#7C5CFC",
+            },
+          ]}
+        >
+          {isLoading ? (
+            <ActivityIndicator color={colors.primary} style={{ padding: 20 }} />
+          ) : analyticsData.breakdown.length > 0 ? (
+            analyticsData.breakdown.slice(0, 6).map((item) => (
+              <View key={item.name} style={styles.categoryRow}>
+                <View style={styles.categoryLeft}>
+                  <View
+                    style={[styles.colorDot, { backgroundColor: item.color }]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.categoryInfo}>
+                      <Text
+                        style={[styles.categoryName, { color: colors.text }]}
+                      >
+                        {item.name}
+                      </Text>
+                      <Text
+                        style={[styles.categoryAmount, { color: colors.text }]}
+                      >
+                        {user?.currency_symbol || "₹"}
+                        {item.amount.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={styles.categoryBarRow}>
+                      <View
+                        style={[
+                          styles.categoryProgressBg,
+                          {
+                            backgroundColor: isDark
+                              ? "rgba(255,255,255,0.06)"
+                              : colors.primarySurface,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.categoryProgressFill,
+                            {
+                              backgroundColor: item.color,
+                              width: `${item.percent}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.categoryPercent,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {item.percent}%
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="pie-chart-outline"
+                size={40}
+                color={colors.textSecondary}
               />
-            ))}
-            <Text style={styles.legendText}>More</Text>
-          </View>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                No spending data yet
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -255,17 +529,19 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   header: {
-    marginBottom: Theme.spacing.xl,
+    marginBottom: Theme.spacing.lg,
   },
   title: {
-    fontSize: Theme.typography.size.xxl,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
     marginBottom: Theme.spacing.md,
   },
   tabBar: {
     flexDirection: "row",
     padding: 4,
     borderRadius: Theme.radius.md,
+    gap: 4,
   },
   tab: {
     flex: 1,
@@ -277,135 +553,73 @@ const styles = StyleSheet.create({
     fontSize: Theme.typography.size.sm,
     fontWeight: "700",
   },
-  chartCard: {
-    padding: Theme.spacing.lg,
+
+  // ─── Heatmap ────────────────────────────────────────────────
+  heatmapCard: {
+    padding: Theme.spacing.md,
     borderRadius: Theme.radius.xl,
     marginBottom: Theme.spacing.lg,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  chartHeader: {
+  heatmapHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Theme.spacing.xl,
+    marginBottom: Theme.spacing.md,
   },
-  chartTitle: {
-    fontSize: Theme.typography.size.md,
-    fontWeight: "600",
-  },
-  chartValue: {
-    fontSize: Theme.typography.size.lg,
+  heatmapTitle: {
+    fontSize: 18,
     fontWeight: "700",
   },
-  chartPlaceholder: {
-    height: 150,
+  heatmapSubtitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  heatmapBadge: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    paddingBottom: 10,
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
   },
-  chartBar: {
-    width: (width - 100) / 7,
-    borderRadius: 4,
-  },
-  sectionTitle: {
-    fontSize: Theme.typography.size.lg,
+  heatmapBadgeText: {
+    fontSize: 12,
     fontWeight: "700",
-    marginBottom: Theme.spacing.md,
-    marginTop: Theme.spacing.sm,
   },
-  sectionHeader: {
+  weekdayRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: Theme.spacing.lg,
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: Theme.typography.size.xs,
-    marginBottom: Theme.spacing.md,
-  },
-  categoriesCard: {
-    padding: Theme.spacing.lg,
-    borderRadius: Theme.radius.xl,
-    marginBottom: Theme.spacing.lg,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  categoryRow: {
-    marginBottom: Theme.spacing.md,
-  },
-  categoryInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  colorDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: Theme.spacing.sm,
-  },
-  categoryName: {
-    fontSize: Theme.typography.size.sm,
-    fontWeight: "600",
-  },
-  categoryStats: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    gap: HEATMAP_GAP,
     marginBottom: 6,
   },
-  categoryAmount: {
-    fontSize: Theme.typography.size.sm,
-    fontWeight: "700",
-  },
-  categoryPercent: {
+  weekdayLabel: {
+    width: CELL_SIZE,
+    textAlign: "center",
     fontSize: 10,
     fontWeight: "600",
-  },
-  categoryProgressBg: {
-    height: 4,
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  categoryProgressFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  heatmapCard: {
-    padding: Theme.spacing.lg,
-    borderRadius: Theme.radius.xl,
-    marginBottom: Theme.spacing.xl,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
   },
   heatmapGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
+    gap: HEATMAP_GAP,
   },
   heatmapCell: {
-    width: (width - 120) / 7,
+    width: CELL_SIZE,
     aspectRatio: 1,
-    borderRadius: 6,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  heatmapText: {
-    fontSize: 10,
-    fontWeight: "600",
+  heatmapCellBlank: {
+    width: CELL_SIZE,
+    aspectRatio: 1,
+  },
+  heatmapDayText: {
+    fontSize: 11,
   },
   heatmapLegend: {
     flexDirection: "row",
@@ -416,12 +630,149 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 10,
-    color: Colors.light.textSecondary,
+    fontWeight: "600",
     marginHorizontal: 4,
   },
   legendBox: {
-    width: 12,
-    height: 12,
-    borderRadius: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+  },
+
+  // ─── Overview Cards ─────────────────────────────────────────
+  overviewRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: Theme.spacing.lg,
+  },
+  overviewCard: {
+    flex: 1,
+    padding: Theme.spacing.md,
+    borderRadius: Theme.radius.lg,
+    gap: 6,
+  },
+  overviewLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.7)",
+  },
+  overviewValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#FFF",
+    letterSpacing: -0.3,
+  },
+
+  // ─── Bar Chart ──────────────────────────────────────────────
+  chartCard: {
+    padding: Theme.spacing.lg,
+    borderRadius: Theme.radius.xl,
+    marginBottom: Theme.spacing.lg,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  barChartContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    height: 170,
+    marginTop: Theme.spacing.md,
+    paddingTop: 20,
+  },
+  barColumn: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  barAmountText: {
+    fontSize: 9,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  bar: {
+    width: "60%",
+    borderRadius: 6,
+    minHeight: 6,
+  },
+  barLabel: {
+    fontSize: 11,
+    marginTop: 8,
+  },
+
+  // ─── Categories ─────────────────────────────────────────────
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: Theme.spacing.md,
+  },
+  categoriesCard: {
+    padding: Theme.spacing.lg,
+    borderRadius: Theme.radius.xl,
+    marginBottom: Theme.spacing.xl,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  categoryRow: {
+    marginBottom: Theme.spacing.md,
+  },
+  categoryLeft: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  colorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  categoryInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  categoryName: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  categoryAmount: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  categoryBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  categoryProgressBg: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  categoryProgressFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  categoryPercent: {
+    fontSize: 12,
+    fontWeight: "700",
+    minWidth: 32,
+    textAlign: "right",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 30,
+    gap: 10,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: "500",
   },
 });

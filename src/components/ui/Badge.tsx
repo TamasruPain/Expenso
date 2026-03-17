@@ -1,5 +1,5 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import React from "react";
 import { StyleSheet, Text, TextStyle, View, ViewStyle } from "react-native";
 
@@ -16,7 +16,7 @@ export const Badge: React.FC<BadgeProps> = ({
   style,
   textStyle,
 }) => {
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   const variantStyles: Record<string, ViewStyle> = {
     primary: { backgroundColor: colors.primarySurface },

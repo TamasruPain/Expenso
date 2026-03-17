@@ -1,29 +1,17 @@
-import { Colors } from "@/constants/colors";
+
+import { Image } from "expo-image";
 import React from "react";
-import { StyleSheet, Text, TextStyle, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg" | "xl";
 }
 
 export const Logo: React.FC<LogoProps> = ({ size = "md" }) => {
-  const isDark = false; // Mock for now
-  const colors = isDark ? Colors.dark : Colors.light;
-
-  const fontSizes = {
-    sm: 24,
-    md: 40,
-    lg: 56,
-    xl: 72,
-  };
-
-  const fontSize = fontSizes[size];
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.text, { fontSize, color: colors.primary }]}>
-        Expenso
-      </Text>
+      <Image source={require("../../../assets/images/expenso_logo.png")} style={styles.logo} />
     </View>
   );
 };
@@ -32,9 +20,11 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
+    width: 200,
+    height: 100,
   },
-  text: {
-    fontWeight: "700" as TextStyle["fontWeight"],
-    letterSpacing: -1,
+  logo: {
+    width: 200,
+    height: 100,
   },
 });

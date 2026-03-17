@@ -1,11 +1,11 @@
-import { Colors } from "@/constants/colors";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform } from "react-native";
 
 export default function TabLayout() {
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   return (
     <Tabs
@@ -18,7 +18,7 @@ export default function TabLayout() {
           bottom: Platform.OS === "ios" ? 24 : 16,
           left: 16,
           right: 16,
-          borderRadius: 24,
+          borderRadius: 15,
           height: 64,
           elevation: 8,
           shadowColor: "#000",
@@ -27,14 +27,15 @@ export default function TabLayout() {
           shadowRadius: 10,
           backgroundColor: colors.card,
           borderTopWidth: 0,
+          margin:10
         },
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 8,
           fontWeight: "600",
           marginBottom: 8,
         },
         tabBarIconStyle: {
-          marginTop: 4,
+          marginTop: 5,
         },
       }}
     >
@@ -86,5 +87,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({});

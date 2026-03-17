@@ -1,16 +1,20 @@
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import { useDatabase } from "@/hooks/useDatabase";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import { BlurView } from "expo-blur";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,14 +24,24 @@ import {
 } from "react-native";
 import { CategoryGrid } from "./CategoryGrid";
 
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 interface AddTransactionModalProps {
   visible: boolean;
   onClose: () => void;
+  editTransaction?: {
+    id: string;
+    type: "income" | "expense";
+    amount: number;
+    categoryId: string;
+    note?: string;
+  };
 }
 
 export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   visible,
   onClose,
+  editTransaction,
 }) => {
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
@@ -35,9 +49,63 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { addTransaction } = useDatabase();
+  const { addTransaction, updateTransaction } = useDatabase();
   const { user } = useAuthStore();
-  const colors = Colors.light;
+  const { colors, isDark } = useAppTheme();
+
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          stiffness: 200,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      slideAnim.setValue(SCREEN_HEIGHT);
+      backdropAnim.setValue(0);
+    }
+  }, [visible, slideAnim, backdropAnim]);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => onClose());
+  };
+
+  // Pre-fill fields when editing
+  React.useEffect(() => {
+    if (editTransaction) {
+      setType(editTransaction.type);
+      setAmount(String(editTransaction.amount));
+      setSelectedCategory(editTransaction.categoryId);
+      setNote(editTransaction.note || "");
+    } else {
+      setType("expense");
+      setAmount("");
+      setSelectedCategory("1");
+      setNote("");
+    }
+  }, [editTransaction, visible]);
 
   const handleSubmit = async () => {
     if (!amount || parseFloat(amount) <= 0) {
@@ -47,13 +115,23 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const success = await addTransaction({
-        amount: parseFloat(amount),
-        type,
-        categoryId: selectedCategory,
-        note,
-        date: new Date().toISOString(),
-      });
+      let success;
+      if (editTransaction) {
+        success = await updateTransaction(editTransaction.id, {
+          amount: parseFloat(amount),
+          type,
+          categoryId: selectedCategory,
+          note,
+        });
+      } else {
+        success = await addTransaction({
+          amount: parseFloat(amount),
+          type,
+          categoryId: selectedCategory,
+          note,
+          date: new Date().toISOString(),
+        });
+      }
 
       if (success) {
         setAmount("");
@@ -70,56 +148,142 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     }
   };
 
+  const expenseActive = type === "expense";
+  const incomeActive = type === "income";
+
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="none"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
+      statusBarTranslucent
     >
-      <View style={styles.overlay}>
+      <View style={styles.root}>
+        {/* Blur Backdrop */}
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { opacity: backdropAnim }]}
+        >
+          <BlurView
+            intensity={40}
+            tint={isDark ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+          />
+          <Pressable
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.3)",
+              },
+            ]}
+            onPress={handleClose}
+          />
+        </Animated.View>
+
+        {/* Sheet Content */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.keyboardView}
         >
-          <View
-            style={[styles.modalContent, { backgroundColor: colors.white }]}
+          <Animated.View
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: colors.card,
+                transform: [{ translateY: slideAnim }],
+                shadowColor: isDark ? "#000" : "#7C5CFC",
+              },
+            ]}
           >
+            {/* Drag Handle */}
+            <View style={styles.handleContainer}>
+              <View
+                style={[
+                  styles.handle,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.2)"
+                      : "rgba(0,0,0,0.12)",
+                  },
+                ]}
+              />
+            </View>
+
+            {/* Header */}
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>
-                Add Transaction
-              </Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color={colors.text} />
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>
+                  {editTransaction ? "Edit Transaction" : "New Transaction"}
+                </Text>
+                <Text
+                  style={[
+                    styles.modalSubtitle,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  {editTransaction
+                    ? "Update the details below"
+                    : "Track your spending & income"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={handleClose}
+                style={[
+                  styles.closeButton,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.06)",
+                  },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              contentContainerStyle={styles.scrollContent}
+            >
               {/* Type Switcher */}
               <View
                 style={[
                   styles.typeSwitcher,
-                  { backgroundColor: colors.primarySurface },
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : colors.background,
+                  },
                 ]}
               >
                 <TouchableOpacity
                   style={[
                     styles.typeButton,
-                    type === "expense" && {
-                      backgroundColor: colors.white,
-                      elevation: 2,
+                    expenseActive && {
+                      backgroundColor: isDark
+                        ? "rgba(255, 92, 92, 0.2)"
+                        : "#FFF0F0",
                     },
                   ]}
                   onPress={() => setType("expense")}
+                  activeOpacity={0.7}
                 >
+                  <Ionicons
+                    name="trending-down"
+                    size={16}
+                    color={expenseActive ? colors.danger : colors.textSecondary}
+                    style={{ marginRight: 6 }}
+                  />
                   <Text
                     style={[
                       styles.typeText,
                       {
-                        color:
-                          type === "expense"
-                            ? colors.primary
-                            : colors.textSecondary,
+                        color: expenseActive
+                          ? colors.danger
+                          : colors.textSecondary,
+                        fontWeight: expenseActive ? "700" : "500",
                       },
                     ]}
                   >
@@ -129,21 +293,29 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.typeButton,
-                    type === "income" && {
-                      backgroundColor: colors.white,
-                      elevation: 2,
+                    incomeActive && {
+                      backgroundColor: isDark
+                        ? "rgba(0, 208, 158, 0.15)"
+                        : "#E8FFF6",
                     },
                   ]}
                   onPress={() => setType("income")}
+                  activeOpacity={0.7}
                 >
+                  <Ionicons
+                    name="trending-up"
+                    size={16}
+                    color={incomeActive ? colors.accent : colors.textSecondary}
+                    style={{ marginRight: 6 }}
+                  />
                   <Text
                     style={[
                       styles.typeText,
                       {
-                        color:
-                          type === "income"
-                            ? colors.primary
-                            : colors.textSecondary,
+                        color: incomeActive
+                          ? colors.accent
+                          : colors.textSecondary,
+                        fontWeight: incomeActive ? "700" : "500",
                       },
                     ]}
                   >
@@ -152,19 +324,21 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Amount Input Shell */}
+              {/* Amount Input */}
               <View
                 style={[
                   styles.amountContainer,
-                  { backgroundColor: colors.primarySurface },
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : colors.background,
+                    borderColor: isDark
+                      ? "rgba(124,92,252,0.3)"
+                      : "rgba(124,92,252,0.15)",
+                  },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.currencyLabel,
-                    { color: colors.textSecondary },
-                  ]}
-                >
+                <Text style={[styles.currencyLabel, { color: colors.primary }]}>
                   {user?.currency_symbol || "₹"}
                 </Text>
                 <TextInput
@@ -173,42 +347,54 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   onChangeText={setAmount}
                   keyboardType="numeric"
                   placeholder="0.00"
+                  placeholderTextColor={colors.textSecondary}
                   autoFocus={true}
                 />
               </View>
 
               {/* Category Selection */}
-              <Text style={[styles.label, { color: colors.text }]}>
-                Category
-              </Text>
-              <CategoryGrid
-                type={type}
-                selectedId={selectedCategory}
-                onSelect={setSelectedCategory}
-              />
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Category
+                </Text>
+                <CategoryGrid
+                  type={type}
+                  selectedId={selectedCategory}
+                  onSelect={setSelectedCategory}
+                />
+              </View>
 
               {/* Note Input */}
-              <Input
-                label="Add a Note:"
-                placeholder="What was this for?"
-                value={note}
-                onChangeText={setNote}
-                multiline
-                inputStyle={{
-                  height: 80,
-                  alignItems: "flex-start",
-                  paddingTop: 12,
-                }}
-              />
+              <View style={styles.sectionContainer}>
+                <Input
+                  label="Note"
+                  placeholder="What was this for?"
+                  value={note}
+                  onChangeText={setNote}
+                  multiline
+                  inputStyle={{
+                    height: 80,
+                    alignItems: "flex-start",
+                    paddingTop: 12,
+                  }}
+                />
+              </View>
 
+              {/* Submit Button */}
               <Button
-                title={isSubmitting ? "Adding..." : "Add Transaction"}
+                title={
+                  isSubmitting
+                    ? "Saving..."
+                    : editTransaction
+                      ? "Update Transaction"
+                      : "Add Transaction"
+                }
                 onPress={handleSubmit}
                 disabled={isSubmitting}
                 style={styles.submitButton}
               />
             </ScrollView>
-          </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -216,83 +402,113 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  overlay: {
+  root: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
   },
   keyboardView: {
-    width: "100%",
+    flex: 1,
+    justifyContent: "flex-end",
   },
-  modalContent: {
-    borderTopLeftRadius: Theme.radius.xl,
-    borderTopRightRadius: Theme.radius.xl,
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "92%",
+    // Shadow
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 24,
+  },
+  handleContainer: {
+    alignItems: "center",
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+  },
+  scrollContent: {
     paddingHorizontal: Theme.spacing.lg,
-    paddingTop: Theme.spacing.lg,
     paddingBottom: Platform.OS === "ios" ? 40 : Theme.spacing.xl,
-    maxHeight: "90%",
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Theme.spacing.lg,
+    paddingHorizontal: Theme.spacing.lg,
+    paddingTop: Theme.spacing.sm,
+    paddingBottom: Theme.spacing.md,
   },
   modalTitle: {
-    fontSize: Theme.typography.size.lg,
+    fontSize: 22,
     fontWeight: "700",
+    letterSpacing: -0.3,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 2,
   },
   closeButton: {
-    padding: 4,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
   },
   typeSwitcher: {
     flexDirection: "row",
     padding: 4,
     borderRadius: Theme.radius.md,
-    marginBottom: Theme.spacing.xl,
+    marginBottom: Theme.spacing.lg,
+    gap: 4,
   },
   typeButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: "center",
+    justifyContent: "center",
     borderRadius: Theme.radius.sm,
+    flexDirection: "row",
   },
   typeText: {
     fontSize: Theme.typography.size.sm,
-    fontWeight: "700",
   },
   amountContainer: {
-    height: 70,
-    borderRadius: Theme.radius.md,
+    height: 80,
+    borderRadius: Theme.radius.lg,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: Theme.spacing.lg,
     marginBottom: Theme.spacing.lg,
+    borderWidth: 1.5,
   },
   currencyLabel: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginRight: 4,
+    fontSize: 28,
+    fontWeight: "700",
+    marginRight: 6,
   },
   amountInput: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: "700",
-    minWidth: 100,
+    minWidth: 120,
     textAlign: "center",
+    letterSpacing: -0.5,
+  },
+  sectionContainer: {
+    marginBottom: Theme.spacing.xs,
   },
   label: {
     fontSize: Theme.typography.size.sm,
     fontWeight: "700",
     marginBottom: Theme.spacing.sm,
   },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: Theme.spacing.sm,
-  },
   submitButton: {
-    marginTop: Theme.spacing.lg,
+    marginTop: Theme.spacing.md,
+    marginBottom: Theme.spacing.sm,
     width: "100%",
   },
 });

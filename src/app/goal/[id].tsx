@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { getIoniconsName } from "@/lib/icons";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
@@ -15,8 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function GoalDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
-  const colors = Colors.light;
+  useLocalSearchParams();
+  const { colors } = useAppTheme();
 
   // Mock data for a single goal
   const goal = {
@@ -64,7 +65,7 @@ export default function GoalDetailScreen() {
             ]}
           >
             <Ionicons
-              name={goal.icon as any}
+              name={getIoniconsName(goal.icon)}
               size={48}
               color={colors.primary}
             />
@@ -77,7 +78,7 @@ export default function GoalDetailScreen() {
           </Text>
         </View>
 
-        <View style={[styles.detailCard, { backgroundColor: colors.white }]}>
+        <View style={[styles.detailCard, { backgroundColor: colors.card }]}>
           <View style={styles.progressHeader}>
             <Text style={[styles.label, { color: colors.textSecondary }]}>
               Progress

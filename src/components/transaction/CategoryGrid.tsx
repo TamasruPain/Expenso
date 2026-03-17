@@ -1,8 +1,11 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { getIoniconsName } from "@/lib/icons";
+import { useCategoryStore } from "@/stores/useCategoryStore";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
+  ActivityIndicator,
   FlatList,
   StyleSheet,
   Text,
@@ -11,7 +14,8 @@ import {
 } from "react-native";
 
 // Mock Categories
-export const DEFAULT_CATEGORIES = [
+// Fallback categories if none are found in DB
+export const FALLBACK_CATEGORIES = [
   { id: "1", name: "Food", icon: "cafe", color: "#FF6B6B" },
   { id: "2", name: "Transport", icon: "car", color: "#4ECDC4" },
   { id: "3", name: "Shopping", icon: "cart", color: "#45B7D1" },
@@ -35,9 +39,13 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
   onSelect,
   type,
 }) => {
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
+  const { categories, isLoading } = useCategoryStore();
 
-  const renderItem = ({ item }: { item: (typeof DEFAULT_CATEGORIES)[0] }) => {
+  const displayCategories =
+    categories.length > 0 ? categories : FALLBACK_CATEGORIES;
+
+  const renderItem = ({ item }: { item: any }) => {
     const isSelected = selectedId === item.id;
 
     return (
@@ -45,8 +53,8 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
         style={[
           styles.itemContainer,
           {
-            backgroundColor: isSelected ? colors.primarySurface : colors.white,
-            borderColor: isSelected ? colors.primary : "#E5E7EB",
+            backgroundColor: isSelected ? colors.primarySurface : colors.card,
+            borderColor: isSelected ? colors.primary : colors.border,
             borderWidth: isSelected ? 2 : 1,
           },
         ]}
@@ -56,14 +64,12 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
           style={[
             styles.iconBox,
             {
-              backgroundColor: isSelected
-                ? colors.white
-                : colors.primarySurface,
+              backgroundColor: isSelected ? colors.card : colors.primarySurface,
             },
           ]}
         >
           <Ionicons
-            name={item.icon as any}
+            name={getIoniconsName(item.icon)}
             size={20}
             color={isSelected ? colors.primary : colors.textSecondary}
           />
@@ -81,10 +87,18 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
     );
   };
 
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
-        data={DEFAULT_CATEGORIES}
+        data={displayCategories}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         numColumns={4}
@@ -123,5 +137,10 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 10,
     fontWeight: "600",
+  },
+  center: {
+    height: 150,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

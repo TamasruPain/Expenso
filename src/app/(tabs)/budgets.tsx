@@ -1,130 +1,203 @@
-import { Button } from "@/components/ui/Button";
-import { Colors } from "@/constants/colors";
+import { AddBudgetModal } from "@/components/budget/AddBudgetModal";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
+import { useDatabase } from "@/hooks/useDatabase";
+import { getIoniconsName } from "@/lib/icons";
+import { useAuthStore } from "@/stores/useAuthStore";
+import { useBudgetStore } from "@/stores/useBudgetStore";
+import { useCategoryStore } from "@/stores/useCategoryStore";
+import { useTransactionStore } from "@/stores/useTransactionStore";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
+import Animated, { FadeInUp, Layout } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// Mock Budget Data
-const BUDGETS = [
-  {
-    id: "1",
-    name: "Food & Dining",
-    spent: 12500,
-    limit: 15000,
-    icon: "cafe",
-    color: "#FF6B6B",
-  },
-  {
-    id: "2",
-    name: "Transport",
-    spent: 4500,
-    limit: 5000,
-    icon: "car",
-    color: "#4ECDC4",
-  },
-  {
-    id: "3",
-    name: "Shopping",
-    spent: 8400,
-    limit: 7000,
-    icon: "cart",
-    color: "#45B7D1",
-  }, // Over budget
-  {
-    id: "4",
-    name: "Entertainment",
-    spent: 2200,
-    limit: 4000,
-    icon: "tv",
-    color: "#AB47BC",
-  },
-];
-
 export default function BudgetsScreen() {
-  const colors = Colors.light;
+  const [modalVisible, setModalVisible] = useState(false);
+  const { colors, isDark } = useAppTheme();
 
-  const renderBudgetItem = ({ item }: { item: (typeof BUDGETS)[0] }) => {
-    const percent = Math.min(100, (item.spent / item.limit) * 100);
-    const isOver = item.spent > item.limit;
+  const { user } = useAuthStore();
+  const { budgets, isLoading } = useBudgetStore();
+  const { transactions } = useTransactionStore();
+  const { categories } = useCategoryStore();
+  const { deleteBudget } = useDatabase();
+
+  const handleDelete = (id: string, name: string) => {
+    Alert.alert(
+      "Delete Budget",
+      `Are you sure you want to delete the budget for ${name}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteBudget(id),
+        },
+      ],
+    );
+  };
+
+  const budgetItems = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    return budgets.map((budget) => {
+      const category = categories.find((c) => c.id === budget.categoryId);
+      // Calculate spent for this category in current month
+      const spent = transactions
+        .filter((t) => {
+          const d = new Date(t.date);
+          return (
+            t.categoryId === budget.categoryId &&
+            t.type === "expense" &&
+            d.getMonth() === currentMonth &&
+            d.getFullYear() === currentYear
+          );
+        })
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      return {
+        ...budget,
+        name: category?.name || "Unknown",
+        icon: getIoniconsName(category?.icon || "medical"),
+        color: category?.color || colors.primary,
+        spent,
+      };
+    });
+  }, [budgets, transactions, categories, colors.primary]);
+
+  const totalBudget = useMemo(
+    () => budgetItems.reduce((acc, b) => acc + b.amount, 0),
+    [budgetItems],
+  );
+  const totalSpent = useMemo(
+    () => budgetItems.reduce((acc, b) => acc + b.spent, 0),
+    [budgetItems],
+  );
+
+  const renderBudgetItem = ({ item, index }: { item: any; index: number }) => {
+    const percent =
+      item.amount > 0 ? Math.min(100, (item.spent / item.amount) * 100) : 0;
+    const isOver = item.spent > item.amount;
+
+    const renderRightActions = () => (
+      <View style={styles.deleteActionContainer}>
+        <TouchableOpacity
+          style={styles.deleteActionButton}
+          onPress={() => handleDelete(item.id, item.name)}
+        >
+          <Ionicons name="trash-outline" size={24} color="#FFF" />
+        </TouchableOpacity>
+      </View>
+    );
 
     return (
-      <TouchableOpacity
-        style={[styles.budgetCard, { backgroundColor: colors.white }]}
+      <Animated.View
+        entering={FadeInUp.delay(index * 100).springify()}
+        layout={Layout.springify()}
       >
-        <View style={styles.cardTop}>
-          <View style={styles.cardHeaderLeft}>
+        <Swipeable
+          renderRightActions={renderRightActions}
+          containerStyle={styles.swipeContainer}
+        >
+          <TouchableOpacity
+            style={[styles.budgetCard, { backgroundColor: colors.card }]}
+            activeOpacity={0.7}
+          >
+            <View style={styles.cardTop}>
+              <View style={styles.cardHeaderLeft}>
+                <View
+                  style={[
+                    styles.iconContainer,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.06)"
+                        : colors.primarySurface,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={item.icon as any}
+                    size={20}
+                    color={item.color}
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.budgetName, { color: colors.text }]}>
+                    {item.name}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.budgetLimit,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Limit: {user?.currency_symbol || "₹"}
+                    {item.amount.toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+              <Text
+                style={[
+                  styles.spentText,
+                  { color: isOver ? colors.danger : colors.text },
+                ]}
+              >
+                {user?.currency_symbol || "₹"}
+                {item.spent.toLocaleString()}
+              </Text>
+            </View>
+
             <View
               style={[
-                styles.iconContainer,
-                { backgroundColor: colors.primarySurface },
+                styles.progressBackground,
+                {
+                  backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#E2E8F0",
+                },
               ]}
             >
-              <Ionicons
-                name={item.icon as any}
-                size={20}
-                color={colors.primary}
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${percent}%`,
+                    backgroundColor: isOver ? colors.danger : item.color,
+                  },
+                ]}
               />
             </View>
-            <View>
-              <Text style={[styles.budgetName, { color: colors.text }]}>
-                {item.name}
+
+            <View style={styles.cardFooter}>
+              <Text
+                style={[styles.remainingText, { color: colors.textSecondary }]}
+              >
+                {isOver ? "Over budget by" : "Remaining"}
               </Text>
               <Text
-                style={[styles.budgetLimit, { color: colors.textSecondary }]}
+                style={[
+                  styles.remainingValue,
+                  { color: isOver ? colors.danger : colors.text },
+                ]}
               >
-                Limit: ₹{item.limit.toLocaleString()}
+                {user?.currency_symbol || "₹"}
+                {Math.abs(item.amount - item.spent).toLocaleString()}
               </Text>
             </View>
-          </View>
-          <Text
-            style={[
-              styles.spentText,
-              { color: isOver ? colors.danger : colors.text },
-            ]}
-          >
-            ₹{item.spent.toLocaleString()}
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.progressBackground,
-            { backgroundColor: colors.primarySurface },
-          ]}
-        >
-          <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${percent}%`,
-                backgroundColor: isOver ? colors.danger : colors.primary,
-              },
-            ]}
-          />
-        </View>
-
-        <View style={styles.cardFooter}>
-          <Text style={[styles.remainingText, { color: colors.textSecondary }]}>
-            {isOver ? "Over budget by" : "Remaining"}
-          </Text>
-          <Text
-            style={[
-              styles.remainingValue,
-              { color: isOver ? colors.danger : colors.accent },
-            ]}
-          >
-            ₹{Math.abs(item.limit - item.spent).toLocaleString()}
-          </Text>
-        </View>
-      </TouchableOpacity>
+          </TouchableOpacity>
+        </Swipeable>
+      </Animated.View>
     );
   };
 
@@ -136,45 +209,75 @@ export default function BudgetsScreen() {
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.text }]}>Budgets</Text>
           <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: colors.white }]}
+            style={[styles.addButton, { backgroundColor: colors.card }]}
+            onPress={() => setModalVisible(true)}
           >
             <Ionicons name="add" size={24} color={colors.primary} />
           </TouchableOpacity>
         </View>
 
         {/* Total Budget Summary */}
-        <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
+        <LinearGradient
+          colors={isDark ? ["#3B2EAF", "#5B3EC9"] : ["#A88DFB", "#7C5CFC"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.summaryCard}
+        >
           <Text style={styles.summaryLabel}>Total Monthly Budget</Text>
-          <Text style={styles.summaryValue}>₹ 45,000</Text>
+          <Text style={styles.summaryValue}>
+            {user?.currency_symbol || "₹"} {totalBudget.toLocaleString()}
+          </Text>
           <View style={styles.summaryFooter}>
             <View>
               <Text style={styles.statLabel}>Spent</Text>
-              <Text style={styles.statValue}>₹ 27,600</Text>
+              <Text style={styles.statValue}>
+                {user?.currency_symbol || "₹"} {totalSpent.toLocaleString()}
+              </Text>
             </View>
             <View style={styles.divider} />
             <View>
               <Text style={styles.statLabel}>Remaining</Text>
-              <Text style={styles.statValue}>₹ 17,400</Text>
+              <Text style={styles.statValue}>
+                {user?.currency_symbol || "₹"}{" "}
+                {Math.max(0, totalBudget - totalSpent).toLocaleString()}
+              </Text>
             </View>
           </View>
-        </View>
+        </LinearGradient>
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
           Category Budgets
         </Text>
 
         <FlatList
-          data={BUDGETS}
+          data={budgetItems}
           renderItem={renderBudgetItem}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            isLoading ? (
+              <ActivityIndicator
+                color={colors.primary}
+                style={{ marginTop: 40 }}
+              />
+            ) : (
+              <Text
+                style={{
+                  textAlign: "center",
+                  color: colors.textSecondary,
+                  marginTop: 40,
+                }}
+              >
+                No budgets set for this month.
+              </Text>
+            )
+          }
         />
 
-        <Button
-          title="Create New Budget"
-          onPress={() => {}}
-          style={styles.createButton}
+        <AddBudgetModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
         />
       </View>
     </SafeAreaView>
@@ -261,12 +364,28 @@ const styles = StyleSheet.create({
     marginBottom: Theme.spacing.md,
   },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 100,
+  },
+  swipeContainer: {
+    marginBottom: Theme.spacing.md,
+    borderRadius: Theme.radius.lg,
+    overflow: "hidden",
+  },
+  deleteActionContainer: {
+    backgroundColor: "#FF5C5C",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+  },
+  deleteActionButton: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
   },
   budgetCard: {
-    padding: Theme.spacing.md,
+    padding: Theme.spacing.lg,
     borderRadius: Theme.radius.lg,
-    marginBottom: Theme.spacing.md,
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },

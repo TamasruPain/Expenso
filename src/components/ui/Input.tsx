@@ -1,5 +1,5 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import React from "react";
 import {
   StyleSheet,
@@ -26,8 +26,7 @@ export const Input: React.FC<InputProps> = ({
   icon,
   ...props
 }) => {
-  const isDark = false;
-  const colors = isDark ? Colors.dark : Colors.light;
+  const { colors } = useAppTheme();
 
   return (
     <View style={[styles.container, containerStyle]}>

@@ -1,5 +1,5 @@
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import React from "react";
 import { StyleSheet, View, ViewStyle } from "react-native";
 
@@ -9,7 +9,7 @@ interface CardProps {
 }
 
 export const Card: React.FC<CardProps> = ({ children, style }) => {
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   return (
     <View style={[styles.card, { backgroundColor: colors.white }, style]}>

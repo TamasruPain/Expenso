@@ -68,5 +68,5 @@ export function useAuthSync() {
     };
 
     syncProfile();
-  }, [clerkLoaded, clerkUser, supabase]);
+  }, [clerkLoaded, clerkUser, supabase, setUser]);
 }

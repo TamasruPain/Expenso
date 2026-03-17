@@ -1,7 +1,7 @@
 import { getCurrencyByCode } from "@/constants/currencies";
 import { useAuthStore } from "@/stores/useAuthStore";
 import * as Localization from "expo-localization";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 /**
  * Hook to manage app-wide currency settings.
@@ -9,7 +9,6 @@ import { useCallback, useState } from "react";
  */
 export const useCurrency = () => {
   const { user, updateCurrency } = useAuthStore();
-  const [detectedCurrency, setDetectedCurrency] = useState<string | null>(null);
 
   const detectRegionCurrency = useCallback(() => {
     const locales = Localization.getLocales();
@@ -26,7 +25,8 @@ export const useCurrency = () => {
   }, []);
 
   const changeCurrency = (code: string) => {
-    updateCurrency(code);
+    const currency = getCurrencyByCode(code);
+    updateCurrency(code, currency.symbol);
   };
 
   const currentCurrency = getCurrencyByCode(

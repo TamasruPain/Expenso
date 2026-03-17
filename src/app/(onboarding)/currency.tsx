@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/Button";
-import { Colors } from "@/constants/colors";
 import { Theme } from "@/constants/theme";
+import { useAppTheme } from "@/hooks/useAppTheme";
 import { useSupabase } from "@/hooks/useSupabase";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,7 +40,7 @@ export default function CurrencySelectionScreen() {
   const [detectedCurrency, setDetectedCurrency] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const colors = Colors.light;
+  const { colors } = useAppTheme();
 
   useEffect(() => {
     // Mock auto-detection
@@ -125,7 +125,7 @@ export default function CurrencySelectionScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.white }]}>
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.text }]}>
@@ -170,7 +170,7 @@ export default function CurrencySelectionScreen() {
           contentContainerStyle={styles.listContent}
         />
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { backgroundColor: colors.white }]}>
           <Button
             title={isSubmitting ? "Saving..." : "Continue"}
             onPress={handleContinue}
@@ -186,7 +186,6 @@ export default function CurrencySelectionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.white,
   },
   content: {
     flex: 1,
@@ -256,7 +255,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingVertical: Theme.spacing.md,
-    backgroundColor: Colors.light.white,
   },
   continueButton: {
     width: "100%",
