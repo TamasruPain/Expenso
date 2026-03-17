@@ -8,16 +8,21 @@
     "scheme": "expenso",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/E_Logo_2.png"
+      "icon": "./assets/images/E_Logo_2.png",
+      "bundleIdentifier": "com.tamasrupain.Expenso",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/expenso_Logo.png",
-        "backgroundImage": "./assets/images/expenso_Logo.png",
-        "monochromeImage": "./assets/images/expenso_Logo.png"
+        "foregroundImage": "./assets/images/E_Logo.png",
+        "backgroundImage": "./assets/images/E_Logo.png",
+        "monochromeImage": "./assets/images/E_Logo.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.tamasrupain.Expenso"
     },
     "web": {
       "output": "static",
@@ -42,6 +47,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ddeecf4a-e06f-4034-9caa-e8927ce0c23e"
+      }
     }
   }
 }
