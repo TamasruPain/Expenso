@@ -182,7 +182,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
         {/* Sheet Content */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.keyboardView}
         >
           <Animated.View
@@ -245,6 +245,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             <ScrollView
               showsVerticalScrollIndicator={false}
               bounces={false}
+              keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.scrollContent}
             >
               {/* Type Switcher */}
@@ -348,7 +349,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   keyboardType="numeric"
                   placeholder="0.00"
                   placeholderTextColor={colors.textSecondary}
-                  autoFocus={true}
+                  autoFocus={false}
                 />
               </View>
 

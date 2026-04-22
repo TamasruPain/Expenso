@@ -68,7 +68,16 @@ export function useDatabase() {
       .single();
 
     if (!error && data) {
-      addTxToStore(data as Transaction);
+      // Map DB column name back to FE field name so the UI can resolve the category
+      const mapped = {
+        ...data,
+        categoryId: (data as any).category_id || (data as any).categoryId,
+      } as Transaction;
+      addTxToStore(mapped);
+
+      // Refresh budgets so spent amounts update immediately
+      fetchBudgets();
+
       return data;
     }
     return null;
@@ -78,6 +87,8 @@ export function useDatabase() {
     const { error } = await supabase.from("transactions").delete().eq("id", id);
     if (!error) {
       removeTxFromStore(id);
+      // Refresh budgets so spent amounts update immediately
+      fetchBudgets();
       return true;
     }
     return false;
@@ -100,8 +111,9 @@ export function useDatabase() {
       .single();
 
     if (!error && data) {
-      // Refresh all transactions to get clean data
+      // Refresh all transactions and budgets to get clean data
       await fetchTransactions();
+      fetchBudgets();
       return data;
     }
     return null;

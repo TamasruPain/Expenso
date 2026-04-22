@@ -7,6 +7,14 @@
     "icon": "./assets/images/E_Logo_2.png",
     "scheme": "expenso",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ddeecf4a-e06f-4034-9caa-e8927ce0c23e",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "ios": {
       "icon": "./assets/images/E_Logo_2.png",
       "bundleIdentifier": "com.tamasrupain.Expenso",
@@ -44,7 +52,8 @@
       "expo-localization",
       "expo-sharing",
       "expo-notifications",
-      "expo-local-authentication"
+      "expo-local-authentication",
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true,
